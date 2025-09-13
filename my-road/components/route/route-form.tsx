@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { sortExperiencesByDistance, formatDistance } from '@/lib/distance-utils';
 
 interface Experience {
   id: string;
@@ -19,12 +20,18 @@ interface Experience {
 interface RouteFormProps {
   experiences: Experience[];
   onSubmitSuccess?: () => void;
+  searchLocation?: {
+    lat: number;
+    lng: number;
+    address: string;
+    name?: string;
+  } | null;
 }
 
 const ageGroups = ['10代', '20代', '30代', '40代', '50代', '60代以上'];
 const genders = ['男性', '女性', 'その他'];
 
-export default function RouteForm({ experiences, onSubmitSuccess }: RouteFormProps) {
+export default function RouteForm({ experiences, onSubmitSuccess, searchLocation }: RouteFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedExperiences, setSelectedExperiences] = useState<Experience[]>([]);
   const [formData, setFormData] = useState({
@@ -42,6 +49,19 @@ export default function RouteForm({ experiences, onSubmitSuccess }: RouteFormPro
   }>>([]);
 
   const supabase = createClient();
+
+  // 検索地点に基づいて距離順でソートされた体験リスト
+  const [sortedExperiences, setSortedExperiences] = useState<Array<Experience & { distance?: number }>>(experiences);
+
+  // 検索地点が変更された時、体験を距離順でソート
+  useEffect(() => {
+    if (searchLocation && experiences.length > 0) {
+      const sorted = sortExperiencesByDistance(experiences, searchLocation);
+      setSortedExperiences(sorted);
+    } else {
+      setSortedExperiences(experiences);
+    }
+  }, [searchLocation, experiences]);
 
   // 選択された体験に応じてステップデータを初期化
   useEffect(() => {
@@ -90,24 +110,16 @@ export default function RouteForm({ experiences, onSubmitSuccess }: RouteFormPro
     setIsSubmitting(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        alert('投稿するにはログインが必要です');
-        setIsSubmitting(false);
-        return;
-      }
-
       // 総所要時間を計算
       const totalDuration = stepData.reduce((total, step) => 
         total + step.durationMinutes + step.travelTimeToNext, 0
       );
 
-      // ルートを作成
+      // 匿名ユーザーでのルート作成を可能にする
       const { data: routeData, error: routeError } = await supabase
         .from('routes')
         .insert({
-          user_id: user.id,
+          user_id: null, // 匿名投稿
           title: formData.title,
           description: formData.description,
           total_duration: totalDuration,
@@ -262,11 +274,18 @@ export default function RouteForm({ experiences, onSubmitSuccess }: RouteFormPro
 
       <Card>
         <CardHeader>
-          <CardTitle>体験を選択 ({selectedExperiences.length}個選択済み)</CardTitle>
+          <CardTitle>
+            体験を選択 ({selectedExperiences.length}個選択済み)
+            {searchLocation && (
+              <div className="text-sm font-normal text-gray-600 mt-1">
+                検索地点: {searchLocation.name || searchLocation.address} からの距離順
+              </div>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2 max-h-60 overflow-y-auto">
-            {experiences.map(exp => (
+            {sortedExperiences.map(exp => (
               <div
                 key={exp.id}
                 onClick={() => handleExperienceSelect(exp)}
@@ -276,12 +295,24 @@ export default function RouteForm({ experiences, onSubmitSuccess }: RouteFormPro
                     : 'border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                <div className="font-medium">{exp.category}</div>
+                <div className="flex justify-between items-start">
+                  <div className="font-medium">{exp.category}</div>
+                  {exp.distance !== undefined && (
+                    <div className="text-xs text-blue-600 font-medium">
+                      {formatDistance(exp.distance)}
+                    </div>
+                  )}
+                </div>
                 <div className="text-sm text-gray-600">
                   {exp.rating}★ - {exp.address || `${exp.latitude.toFixed(4)}, ${exp.longitude.toFixed(4)}`}
                 </div>
               </div>
             ))}
+            {sortedExperiences.length === 0 && (
+              <div className="text-center text-gray-500 py-4">
+                体験データがありません
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

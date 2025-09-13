@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,12 @@ interface ExperienceFilterProps {
   onFilterChange: (filters: FilterOptions) => void;
   selectedLocation?: { lat: number; lng: number } | null;
   availableCategories: string[];
+  searchLocation?: {
+    lat: number;
+    lng: number;
+    address: string;
+    name?: string;
+  } | null;
 }
 
 const categories = [
@@ -34,7 +40,8 @@ const timeOptions = ['朝', '昼', '夜', '深夜'];
 export default function ExperienceFilter({ 
   onFilterChange, 
   selectedLocation, 
-  availableCategories 
+  availableCategories,
+  searchLocation 
 }: ExperienceFilterProps) {
   const [filters, setFilters] = useState<FilterOptions>({
     categories: [],
@@ -49,10 +56,26 @@ export default function ExperienceFilter({
 
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // 検索地点が設定された時に自動的に距離ソートに変更
+  useEffect(() => {
+    if (searchLocation && filters.sortBy !== 'distance') {
+      setFilters(prev => ({
+        ...prev,
+        sortBy: 'distance' as const,
+        sortOrder: 'asc' as const
+      }));
+    }
+  }, [searchLocation?.lat, searchLocation?.lng]); // 座標のみを監視
+
+  // filtersが変更された時にonFilterChangeを呼び出す
+  useEffect(() => {
+    onFilterChange(filters);
+  }, [filters, onFilterChange]);
+
   const updateFilters = (newFilters: Partial<FilterOptions>) => {
     const updatedFilters = { ...filters, ...newFilters };
     setFilters(updatedFilters);
-    onFilterChange(updatedFilters);
+    // onFilterChangeはuseEffectで呼び出すので重複を避ける
   };
 
   const toggleArrayFilter = (array: string[], value: string) => {
@@ -68,12 +91,12 @@ export default function ExperienceFilter({
       genders: [],
       timeOfDay: [],
       minRating: 1,
-      maxDistance: selectedLocation ? 5 : undefined,
-      sortBy: 'created_at',
-      sortOrder: 'desc'
+      maxDistance: (searchLocation || selectedLocation) ? 5 : undefined,
+      sortBy: searchLocation ? 'distance' : 'created_at',
+      sortOrder: searchLocation ? 'asc' : 'desc'
     };
     setFilters(clearedFilters);
-    onFilterChange(clearedFilters);
+    // onFilterChangeはuseEffectで呼び出すので重複を避ける
   };
 
   const getActiveFiltersCount = () => {
@@ -137,7 +160,7 @@ export default function ExperienceFilter({
                 <option value="rating">評価</option>
                 <option value="age_group">年代</option>
                 <option value="gender">性別</option>
-                {selectedLocation && <option value="distance">距離</option>}
+                {(searchLocation || selectedLocation) && <option value="distance">距離</option>}
               </select>
               <select
                 value={filters.sortOrder}
@@ -197,7 +220,7 @@ export default function ExperienceFilter({
           <div>
             <h4 className="font-medium text-sm mb-2">
               距離: {filters.maxDistance ? `${filters.maxDistance}km以内` : '制限なし'}
-              {!selectedLocation && (
+              {!(searchLocation || selectedLocation) && (
                 <span className="text-xs text-orange-600 ml-2">
                   （地図で場所を選択すると有効）
                 </span>
@@ -213,15 +236,15 @@ export default function ExperienceFilter({
                 maxDistance: Number(e.target.value) 
               })}
               className="w-full"
-              disabled={!selectedLocation}
+              disabled={!(searchLocation || selectedLocation)}
             />
             <div className="flex justify-between text-xs text-gray-500">
               <span>0.5km</span>
               <span>50km</span>
             </div>
-            {!selectedLocation && (
+            {!(searchLocation || selectedLocation) && (
               <p className="text-xs text-gray-500 mt-1">
-                地図をクリックして場所を選択すると、その場所からの距離で絞り込みができます。
+                地図をクリックして場所を選択するか、住所検索を行うと、その場所からの距離で絞り込みができます。
               </p>
             )}
           </div>
