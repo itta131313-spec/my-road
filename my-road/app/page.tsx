@@ -13,6 +13,7 @@ import ExperienceList from "@/components/experience/experience-list";
 import ExperienceFilter from "@/components/filter/experience-filter";
 import RouteForm from "@/components/route/route-form";
 import RouteList from "@/components/route/route-list";
+import MapControls from "@/components/map/map-controls";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
@@ -30,6 +31,15 @@ export default function Home() {
     category: string;
     rating: number;
     address?: string;
+    age_group?: string;
+    gender?: string;
+    time_of_day?: string;
+    created_at?: string;
+    place_id?: string;
+    place_name?: string;
+    website?: string;
+    google_url?: string;
+    phone?: string;
   }>>([]);
 
   const [activeTab, setActiveTab] = useState<'experience' | 'route' | 'routes' | 'search'>('experience');
@@ -51,21 +61,36 @@ export default function Home() {
     address: string;
     name?: string;
   } | null>(null);
+  const [allCategories, setAllCategories] = useState<string[]>([]);
+  const [mapFilters, setMapFilters] = useState<{
+    categories: string[];
+    minRating: number;
+    sortBy: string;
+    showLabels: boolean;
+  }>({
+    categories: [],
+    minRating: 1,
+    sortBy: 'rating',
+    showLabels: true
+  });
 
   const supabase = createClient();
 
-  // 体験データを取得
+  // 体験データを取得（地図表示用の基本情報のみ）
   const fetchExperiences = async () => {
     try {
       const { data, error } = await supabase
         .from('experiences')
-        .select('id, latitude, longitude, category, rating, address')
+        .select('id, latitude, longitude, category, rating, address, age_group, gender, time_of_day, created_at, place_id, place_name, website, google_url, phone')
         .order('created_at', { ascending: false });
 
       if (error) {
         console.error('体験データの取得エラー:', error);
       } else {
         setExperiences(data || []);
+        // カテゴリ一覧を更新
+        const uniqueCategories = [...new Set(data?.map(exp => exp.category) || [])];
+        setAllCategories(uniqueCategories);
       }
     } catch (error) {
       console.error('体験データの取得エラー:', error);
@@ -113,11 +138,19 @@ export default function Home() {
             </div>
 
             {/* 基本的なマップコンポーネント */}
-            <BasicMap 
-              searchLocation={searchLocation}
-              experiences={experiences}
-              onLocationSelect={setSelectedLocation}
-            />
+            <div className="relative">
+              <BasicMap
+                searchLocation={searchLocation}
+                experiences={experiences}
+                onLocationSelect={setSelectedLocation}
+                showExperiencePopup={true}
+                mapFilters={mapFilters}
+              />
+              <MapControls
+                onFiltersChange={setMapFilters}
+                availableCategories={allCategories}
+              />
+            </div>
           </div>
         </div>
 
@@ -228,11 +261,11 @@ export default function Home() {
               <div className="space-y-3 sm:space-y-4">
                 <h2 className="text-base sm:text-lg font-semibold">体験を検索・絞り込み</h2>
                 
-                <ExperienceFilter 
+                <ExperienceFilter
                   onFilterChange={setFilters}
                   selectedLocation={selectedLocation}
                   searchLocation={searchLocation}
-                  availableCategories={experiences.map(exp => exp.category)}
+                  availableCategories={allCategories}
                 />
 
                 <ExperienceList 

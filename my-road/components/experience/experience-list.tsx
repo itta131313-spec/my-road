@@ -124,65 +124,69 @@ export default function ExperienceList({
   useEffect(() => {
     console.log('=== フィルタリング処理開始 ===');
     console.log('experiences:', experiences.length, '件');
-    console.log('experiences data:', experiences);
     console.log('filters:', filters);
+    console.log('filters.maxDistance:', filters.maxDistance, '(型:', typeof filters.maxDistance, ')');
     console.log('searchLocation:', searchLocation);
     console.log('selectedLocation:', selectedLocation);
-    
+
     let filtered = [...experiences];
 
-    // カテゴリフィルタ
-    if (filters.categories.length > 0) {
+    // カテゴリフィルタ（空の場合は全て表示）
+    if (filters.categories && filters.categories.length > 0) {
       console.log('カテゴリフィルタ適用前:', filtered.length, '件');
-      filtered = filtered.filter(exp => 
+      filtered = filtered.filter(exp =>
         filters.categories.includes(exp.category)
       );
       console.log('カテゴリフィルタ適用後:', filtered.length, '件');
     }
 
-    // 年代フィルタ
-    if (filters.ageGroups.length > 0) {
-      filtered = filtered.filter(exp => 
+    // 年代フィルタ（空の場合は全て表示）
+    if (filters.ageGroups && filters.ageGroups.length > 0) {
+      filtered = filtered.filter(exp =>
         filters.ageGroups.includes(exp.age_group)
       );
     }
 
-    // 性別フィルタ
-    if (filters.genders.length > 0) {
-      filtered = filtered.filter(exp => 
+    // 性別フィルタ（空の場合は全て表示）
+    if (filters.genders && filters.genders.length > 0) {
+      filtered = filtered.filter(exp =>
         filters.genders.includes(exp.gender)
       );
     }
 
-    // 時間帯フィルタ
-    if (filters.timeOfDay.length > 0) {
-      filtered = filtered.filter(exp => 
+    // 時間帯フィルタ（空の場合は全て表示）
+    if (filters.timeOfDay && filters.timeOfDay.length > 0) {
+      filtered = filtered.filter(exp =>
         filters.timeOfDay.includes(exp.time_of_day)
       );
     }
 
     // 評価フィルタ
-    if (filters.minRating > 1) {
-      filtered = filtered.filter(exp => 
+    if (filters.minRating && filters.minRating > 1) {
+      filtered = filtered.filter(exp =>
         exp.rating >= filters.minRating
       );
     }
 
     // 距離フィルタ（選択された場所または検索地点がある場合）
     const referenceLocation = searchLocation || selectedLocation;
-    console.log('referenceLocation:', referenceLocation);
-    console.log('filters.maxDistance:', filters.maxDistance);
-    if (referenceLocation && filters.maxDistance) {
+    console.log('距離フィルタ referenceLocation:', referenceLocation);
+    console.log('距離フィルタ filters.maxDistance:', filters.maxDistance);
+    if (referenceLocation && filters.maxDistance !== undefined && filters.maxDistance !== null) {
       console.log('距離フィルタ適用前:', filtered.length, '件');
       filtered = filtered.filter(exp => {
         const distance = calculateDistance(
           referenceLocation.lat, referenceLocation.lng,
           exp.latitude, exp.longitude
         );
-        console.log(`体験 ${exp.id}: 距離 ${distance.toFixed(2)}km, 制限 ${filters.maxDistance}km`);
-        return distance <= filters.maxDistance!;
+        const maxDist = Number(filters.maxDistance!);
+        const result = distance <= maxDist;
+        console.log(`体験 ${exp.id}: 距離 ${distance.toFixed(2)}km, 制限 ${maxDist}km (型: ${typeof maxDist}), 判定: ${result}, 比較: ${distance} <= ${maxDist}`);
+        return result;
       });
       console.log('距離フィルタ適用後:', filtered.length, '件');
+    } else {
+      console.log('距離フィルタスキップ - 基準地点またはmaxDistanceなし');
     }
 
     // ソート処理

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from '@/lib/supabase/client';
+import { getPlaceInfoOptimized } from './optimized-places-lookup';
 
 interface ExperienceFormProps {
   selectedLocation?: {
@@ -52,20 +53,91 @@ export default function ExperienceForm({ selectedLocation, onSubmitSuccess }: Ex
     setIsSubmitting(true);
 
     try {
+      // 最適化されたGoogle Places APIから詳細情報を取得
+      let placeDetails = null;
+      if (selectedLocation.address && window.google?.maps?.places) {
+        try {
+          console.log('最適化されたPlaces APIから詳細情報を取得中...');
+          const optimizedResult = await getPlaceInfoOptimized(
+            selectedLocation.address,
+            { lat: selectedLocation.lat, lng: selectedLocation.lng }
+          );
+
+          if (optimizedResult) {
+            placeDetails = {
+              place_id: optimizedResult.place_id,
+              name: optimizedResult.place_name,
+              website: optimizedResult.website,
+              url: optimizedResult.google_url,
+              international_phone_number: optimizedResult.phone
+            };
+            console.log('最適化されたPlace詳細情報取得成功:', placeDetails);
+          }
+        } catch (error) {
+          console.log('最適化Places API情報取得エラー:', error);
+          // フォールバックとして従来の方法を使用
+          if (window.google?.maps?.places) {
+            try {
+              console.log('フォールバック: 従来のGoogle Places APIを使用');
+              const service = new window.google.maps.places.PlacesService(document.createElement('div'));
+              const geocoder = new window.google.maps.Geocoder();
+
+              const geocodeResult = await new Promise<any>((resolve) => {
+                geocoder.geocode({ address: selectedLocation.address }, (results, status) => {
+                  if (status === 'OK' && results?.[0]) {
+                    resolve(results[0]);
+                  } else {
+                    resolve(null);
+                  }
+                });
+              });
+
+              if (geocodeResult && geocodeResult.place_id) {
+                placeDetails = await new Promise<any>((resolve) => {
+                  service.getDetails({
+                    placeId: geocodeResult.place_id,
+                    fields: ['name', 'website', 'url', 'international_phone_number', 'place_id']
+                  }, (place, status) => {
+                    if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
+                      resolve(place);
+                    } else {
+                      resolve(null);
+                    }
+                  });
+                });
+              }
+            } catch (fallbackError) {
+              console.log('フォールバックPlaces API情報取得エラー:', fallbackError);
+            }
+          }
+        }
+      }
+
       // 匿名ユーザーでの投稿を可能にする（user_idをnullで投稿）
+      const insertData: any = {
+        user_id: null, // 匿名投稿
+        latitude: selectedLocation.lat,
+        longitude: selectedLocation.lng,
+        address: selectedLocation.address,
+        category: formData.category,
+        rating: formData.rating,
+        age_group: formData.ageGroup,
+        gender: formData.gender,
+        time_of_day: formData.timeOfDay
+      };
+
+      // Places API情報がある場合は追加
+      if (placeDetails) {
+        insertData.place_id = placeDetails.place_id || null;
+        insertData.place_name = placeDetails.name || null;
+        insertData.website = placeDetails.website || null;
+        insertData.google_url = placeDetails.url || null;
+        insertData.phone = placeDetails.international_phone_number || null;
+      }
+
       const { error } = await supabase
         .from('experiences')
-        .insert({
-          user_id: null, // 匿名投稿
-          latitude: selectedLocation.lat,
-          longitude: selectedLocation.lng,
-          address: selectedLocation.address,
-          category: formData.category,
-          rating: formData.rating,
-          age_group: formData.ageGroup,
-          gender: formData.gender,
-          time_of_day: formData.timeOfDay
-        });
+        .insert(insertData);
 
       if (error) {
         throw new Error(`投稿に失敗しました: ${error.message}`);

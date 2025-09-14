@@ -49,26 +49,34 @@ export default function ExperienceFilter({
     genders: [],
     timeOfDay: [],
     minRating: 1,
-    maxDistance: selectedLocation ? 5 : undefined, // デフォルト5km
-    sortBy: 'created_at',
-    sortOrder: 'desc'
+    maxDistance: (searchLocation || selectedLocation) ? 10 : undefined, // デフォルト10km
+    sortBy: searchLocation ? 'distance' : 'created_at',
+    sortOrder: searchLocation ? 'asc' : 'desc'
   });
 
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // 検索地点が設定された時に自動的に距離ソートに変更
+  // 検索地点が設定された時に自動的に距離ソートと距離フィルタを設定
   useEffect(() => {
-    if (searchLocation && filters.sortBy !== 'distance') {
-      setFilters(prev => ({
-        ...prev,
-        sortBy: 'distance' as const,
-        sortOrder: 'asc' as const
-      }));
+    if (searchLocation) {
+      console.log('ExperienceFilter: searchLocation設定により距離フィルタ更新');
+      setFilters(prev => {
+        const newMaxDistance = prev.maxDistance || 10; // 距離フィルタがない場合は10kmに設定
+        console.log('ExperienceFilter: maxDistance設定:', newMaxDistance, '(型:', typeof newMaxDistance, ')');
+        return {
+          ...prev,
+          sortBy: 'distance' as const,
+          sortOrder: 'asc' as const,
+          maxDistance: newMaxDistance
+        };
+      });
     }
   }, [searchLocation?.lat, searchLocation?.lng]); // 座標のみを監視
 
   // filtersが変更された時にonFilterChangeを呼び出す
   useEffect(() => {
+    console.log('ExperienceFilter: フィルタ更新:', filters);
+    console.log('ExperienceFilter: maxDistance:', filters.maxDistance, '(型:', typeof filters.maxDistance, ')');
     onFilterChange(filters);
   }, [filters, onFilterChange]);
 
@@ -91,7 +99,7 @@ export default function ExperienceFilter({
       genders: [],
       timeOfDay: [],
       minRating: 1,
-      maxDistance: (searchLocation || selectedLocation) ? 5 : undefined,
+      maxDistance: (searchLocation || selectedLocation) ? 10 : undefined,
       sortBy: searchLocation ? 'distance' : 'created_at',
       sortOrder: searchLocation ? 'asc' : 'desc'
     };
