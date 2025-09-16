@@ -35,6 +35,23 @@ interface BasicMapProps {
   }>;
   onLocationSelect?: (location: { lat: number; lng: number; address?: string }) => void;
   selectedExperienceId?: string;
+  selectedExperience?: {
+    id: string;
+    latitude: number;
+    longitude: number;
+    category: string;
+    rating: number;
+    address?: string;
+    age_group?: string;
+    gender?: string;
+    time_of_day?: string;
+    created_at?: string;
+    place_id?: string;
+    place_name?: string;
+    website?: string;
+    google_url?: string;
+    phone?: string;
+  } | null;
   onExperienceSelect?: (experience: any) => void;
   showExperiencePopup?: boolean;
   mapFilters?: {
@@ -45,11 +62,50 @@ interface BasicMapProps {
   };
 }
 
+// 距離計算（ハベルサイン公式）
+const calculateDistance = (
+  lat1: number, lon1: number,
+  lat2: number, lon2: number
+): number => {
+  const R = 6371; // 地球の半径 (km)
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const d = R * c; // 距離 (km)
+  return d;
+};
+
+// 検索場所の近くにある体験を検索する関数
+const findNearbyExperiences = (
+  searchLat: number,
+  searchLng: number,
+  experiences: any[],
+  maxDistanceKm: number = 0.1 // 100m以内
+) => {
+  return experiences.filter(exp => {
+    const distance = calculateDistance(
+      searchLat, searchLng,
+      exp.latitude, exp.longitude
+    );
+    return distance <= maxDistanceKm;
+  }).sort((a, b) => {
+    // 距離順でソート
+    const distanceA = calculateDistance(searchLat, searchLng, a.latitude, a.longitude);
+    const distanceB = calculateDistance(searchLat, searchLng, b.latitude, b.longitude);
+    return distanceA - distanceB;
+  });
+};
+
 export default function BasicMap({
   searchLocation,
   experiences = [],
   onLocationSelect,
   selectedExperienceId,
+  selectedExperience,
   onExperienceSelect,
   showExperiencePopup = true,
   mapFilters = { categories: [], minRating: 1, sortBy: 'rating', showLabels: true }
@@ -58,8 +114,137 @@ export default function BasicMap({
   const [status, setStatus] = useState<string>('初期化中...');
   const [map, setMap] = useState<any>(null);
   const [selectedMarker, setSelectedMarker] = useState<any>(null);
+  const [searchMarker, setSearchMarker] = useState<any>(null);
+  const [currentInfoWindow, setCurrentInfoWindow] = useState<any>(null);
   const experienceMarkersRef = useRef<any[]>([]);
-  const lastClickRef = useRef<{markerId: string, time: number} | null>(null);
+
+  // 改良されたInfoWindow管理（重複防止機能付き）
+  const allInfoWindowsRef = useRef<any[]>([]);
+
+  const registerInfoWindow = (infoWindow: any) => {
+    if (!allInfoWindowsRef.current.includes(infoWindow)) {
+      allInfoWindowsRef.current.push(infoWindow);
+      console.log('InfoWindowを登録:', allInfoWindowsRef.current.length);
+    }
+  };
+
+  const closeAllInfoWindows = () => {
+    console.log('=== すべてのInfoWindowを閉じる ===');
+
+    // 現在のインフォウィンドウを閉じる
+    if (currentInfoWindow) {
+      try {
+        currentInfoWindow.close();
+      } catch (e) {
+        console.warn('currentInfoWindow のクローズエラー:', e);
+      }
+      setCurrentInfoWindow(null);
+    }
+
+    // 登録されたすべてのInfoWindowを閉じる
+    allInfoWindowsRef.current.forEach((infoWindow, index) => {
+      try {
+        if (infoWindow && typeof infoWindow.close === 'function') {
+          infoWindow.close();
+          console.log(`InfoWindow ${index} を閉じました`);
+        }
+      } catch (e) {
+        console.warn(`InfoWindow ${index} のクローズエラー:`, e);
+      }
+    });
+
+    // 体験マーカーのインフォウィンドウを閉じる
+    experienceMarkersRef.current.forEach(({ infoWindow }, index) => {
+      if (infoWindow) {
+        try {
+          infoWindow.close();
+          console.log(`体験マーカー ${index} のInfoWindowを閉じました`);
+        } catch (e) {
+          console.warn(`体験マーカー ${index} のクローズエラー:`, e);
+        }
+      }
+    });
+
+    // 配列をクリア
+    allInfoWindowsRef.current = [];
+  };
+
+  const openInfoWindow = (infoWindow: any, marker: any) => {
+    console.log('=== 新しいInfoWindowを開く ===');
+
+    // まず全てのInfoWindowを閉じる
+    closeAllInfoWindows();
+
+    // 新しいInfoWindowを登録して開く
+    setTimeout(() => {
+      try {
+        if (map && infoWindow && marker) {
+          registerInfoWindow(infoWindow);
+          infoWindow.open(map, marker);
+          setCurrentInfoWindow(infoWindow);
+          console.log('新しいInfoWindowを開きました');
+
+          // InfoWindowが開いた後、z-indexを最前面に設定
+          setTimeout(() => {
+            try {
+              // Google Maps特有のInfoWindowクラスを対象にする
+              const gmStyleElements = document.querySelectorAll('.gm-style-iw, .gm-style-iw-c, .gm-style-iw-d');
+              gmStyleElements.forEach((element: any) => {
+                element.style.zIndex = '10000';
+                if (element.parentElement) {
+                  element.parentElement.style.zIndex = '10000';
+                }
+              });
+
+              const infoWindowElements = document.querySelectorAll('.gm-ui-hover-effect');
+              infoWindowElements.forEach((element: any) => {
+                element.style.zIndex = '10000';
+                if (element.parentElement) {
+                  element.parentElement.style.zIndex = '10000';
+                }
+                if (element.parentElement?.parentElement) {
+                  element.parentElement.parentElement.style.zIndex = '10000';
+                }
+                console.log('InfoWindowのz-indexを最前面に設定しました');
+              });
+
+              // より具体的なInfoWindow要素も対象にする
+              const infoWindowContainers = document.querySelectorAll('div[style*="position: absolute"]');
+              infoWindowContainers.forEach((element: any) => {
+                if (element.innerHTML && (
+                    element.innerHTML.includes('検索結果') ||
+                    element.innerHTML.includes('この場所に体験投稿があります') ||
+                    element.innerHTML.includes('選択中の体験') ||
+                    element.innerHTML.includes('評価:') ||
+                    element.innerHTML.includes('★'))) {
+                  element.style.zIndex = '10000';
+                  console.log('詳細InfoWindowのz-indexを最前面に設定しました');
+                }
+              });
+
+              // より包括的なアプローチ：すべてのGoogle MapsのInfoWindow要素
+              const allAbsoluteElements = document.querySelectorAll('div[style*="position: absolute"]');
+              allAbsoluteElements.forEach((element: any) => {
+                const rect = element.getBoundingClientRect();
+                // 画面に表示されているInfoWindowっぽい要素（サイズで判定）
+                if (rect.width > 200 && rect.height > 100 &&
+                    (element.innerHTML.includes('🎯') ||
+                     element.innerHTML.includes('★') ||
+                     element.innerHTML.includes('詳細を見る'))) {
+                  element.style.zIndex = '10000';
+                  console.log('判定によりInfoWindowのz-indexを設定しました');
+                }
+              });
+            } catch (zIndexError) {
+              console.warn('z-index設定エラー:', zIndexError);
+            }
+          }, 100);
+        }
+      } catch (error) {
+        console.warn('InfoWindowのオープンエラー:', error);
+      }
+    }, 50);
+  };
 
   useEffect(() => {
     const loadGoogleMaps = () => {
@@ -104,23 +289,11 @@ export default function BasicMap({
         setMap(mapInstance);
         setStatus('地図の読み込み完了');
 
-        // クリックイベントリスナー
+        // 地図クリックイベントリスナー（簡素化）
         mapInstance.addListener('click', (e: any) => {
-          // インフォウィンドウを閉じてラベルを再表示
-          experienceMarkersRef.current.forEach(({ infoWindow }) => {
-            if (infoWindow) {
-              infoWindow.close();
-            }
-          });
+          console.log('地図がクリックされました');
 
-          // ラベルを再表示（showLabelsがtrueの場合のみ）
-          if (mapFilters.showLabels) {
-            experienceMarkersRef.current.forEach(({ label, marker }) => {
-              if (label) {
-                label.open(mapInstance, marker);
-              }
-            });
-          }
+          closeAllInfoWindows();
 
           if (e.latLng && onLocationSelect) {
             const location = {
@@ -175,18 +348,30 @@ export default function BasicMap({
 
     // クリーンアップ
     return () => {
+      closeAllInfoWindows();
+      allInfoWindowsRef.current = [];
       if ((window as any).initBasicMap) {
         (window as any).initBasicMap = undefined;
       }
     };
   }, []);
 
-  // 検索場所を地図に表示
+  // 検索場所を地図に表示（簡素化）
   useEffect(() => {
     if (!map || !searchLocation) return;
 
-    // 検索マーカーを追加（緑色のデフォルトアイコン）
-    const searchMarker = new window.google.maps.Marker({
+    console.log('=== 検索場所を地図に表示 ===');
+    console.log('searchLocation:', searchLocation);
+    console.log('地図の中心を移動:', { lat: searchLocation.lat, lng: searchLocation.lng });
+
+    // 前の検索マーカーをクリア
+    if (searchMarker) {
+      console.log('前の検索マーカーを削除');
+      searchMarker.setMap(null);
+    }
+
+    // 新しい検索マーカーを追加（緑色のデフォルトアイコン）
+    const newSearchMarker = new window.google.maps.Marker({
       position: { lat: searchLocation.lat, lng: searchLocation.lng },
       map: map,
       title: searchLocation.name || searchLocation.address,
@@ -195,29 +380,194 @@ export default function BasicMap({
       }
     });
 
+    setSearchMarker(newSearchMarker);
+
     // 地図の中心を移動
     map.setCenter({ lat: searchLocation.lat, lng: searchLocation.lng });
     map.setZoom(15);
 
-    const infoWindow = new window.google.maps.InfoWindow({
-      content: `
-        <div>
-          <h3>${searchLocation.name || '検索結果'}</h3>
-          <p>${searchLocation.address}</p>
+    console.log('地図の中心移動完了');
+
+    // 検索場所の近くに体験があるかチェック
+    const nearbyExperiences = findNearbyExperiences(
+      searchLocation.lat,
+      searchLocation.lng,
+      experiences,
+      0.15 // 150m以内
+    );
+
+    console.log('検索場所の近くの体験:', nearbyExperiences);
+
+    // InfoWindowのコンテンツを生成
+    let infoWindowContent = `
+      <div style="min-width: 300px; max-width: 420px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+        <div style="margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb;">
+          <h3 style="margin: 0; color: #1f2937; font-size: 18px; font-weight: 600;">${searchLocation.name || '検索結果'}</h3>
+          <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 13px;">${searchLocation.address}</p>
         </div>
-      `
+    `;
+
+    if (nearbyExperiences.length > 0) {
+      // 近くに体験がある場合は、体験情報を含むコンテンツを追加
+      infoWindowContent += `
+        <div style="margin-bottom: 12px; padding: 8px; background-color: #ecfdf5; border-radius: 6px; border: 2px solid #10b981;">
+          <div style="color: #065f46; font-size: 14px; font-weight: 600; margin-bottom: 6px;">🎯 この場所に体験投稿があります！</div>
+          <div style="color: #047857; font-size: 12px;">${nearbyExperiences.length}件の体験が見つかりました</div>
+        </div>
+
+        ${nearbyExperiences.slice(0, 3).map((exp) => `
+          <div style="margin-bottom: 8px; padding: 8px; background-color: #f9fafb; border-radius: 6px; border-left: 3px solid #3b82f6; cursor: pointer; transition: background-color 0.2s;"
+               onmouseover="this.style.backgroundColor='#f0f9ff'"
+               onmouseout="this.style.backgroundColor='#f9fafb'"
+               onclick="window.open('/experience/${exp.id}', '_blank')">
+            <div style="font-weight: 600; color: #1e40af; font-size: 14px; margin-bottom: 4px;">
+              ${exp.category}
+              <span style="float: right; font-size: 11px; color: #3b82f6;">📖 詳細を見る</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-bottom: 4px;">
+              <span style="color: #fbbf24; font-size: 14px; margin-right: 6px;">${exp.rating ? '★'.repeat(exp.rating) : ''}</span>
+              <span style="color: #d1d5db; font-size: 14px; margin-right: 6px;">${exp.rating ? '☆'.repeat(5 - exp.rating) : '☆☆☆☆☆'}</span>
+              <span style="color: #6b7280; font-size: 12px;">(${exp.rating || 0}/5)</span>
+            </div>
+            <div style="font-size: 11px; color: #6b7280;">
+              ${exp.age_group || ''} ${exp.gender || ''} ${exp.time_of_day || ''}
+              ${calculateDistance(searchLocation.lat, searchLocation.lng, exp.latitude, exp.longitude) < 0.01
+                ? '(同じ場所)'
+                : `(${Math.round(calculateDistance(searchLocation.lat, searchLocation.lng, exp.latitude, exp.longitude) * 1000)}m)`}
+            </div>
+          </div>
+        `).join('')}
+
+        ${nearbyExperiences.length > 3 ? `
+          <div style="text-align: center; margin-top: 8px; padding: 6px; background-color: #f3f4f6; border-radius: 4px;">
+            <span style="font-size: 12px; color: #6b7280;">他${nearbyExperiences.length - 3}件の体験があります</span>
+          </div>
+        ` : ''}
+
+        <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center;">
+          <div style="color: #6b7280; font-size: 12px;">
+            体験マーカーをクリックして詳細を確認
+          </div>
+        </div>
+      `;
+    }
+
+    infoWindowContent += `</div>`;
+
+    const infoWindow = new window.google.maps.InfoWindow({
+      content: infoWindowContent,
+      maxWidth: 420,
+      zIndex: 9999  // 最前面に表示
     });
 
-    searchMarker.addListener('click', () => {
-      infoWindow.open(map, searchMarker);
+    newSearchMarker.addListener('click', () => {
+      openInfoWindow(infoWindow, newSearchMarker);
     });
 
-    // 自動的にインフォウィンドウを表示
+    // 自動でインフォウィンドウを表示
     setTimeout(() => {
-      infoWindow.open(map, searchMarker);
-    }, 500);
+      openInfoWindow(infoWindow, newSearchMarker);
+
+      // 近くに体験がある場合は、該当する体験マーカーも強調表示
+      if (nearbyExperiences.length > 0) {
+        console.log('近くの体験マーカーを強調表示');
+        nearbyExperiences.forEach((exp, index) => {
+          if (index < 3) { // 最大3つまで強調
+            const expMarker = experienceMarkersRef.current.find(m => {
+              const position = m.marker.getPosition();
+              return Math.abs(position.lat() - exp.latitude) < 0.00001 &&
+                     Math.abs(position.lng() - exp.longitude) < 0.00001;
+            });
+
+            if (expMarker) {
+              try {
+                expMarker.marker.setAnimation(window.google.maps.Animation.BOUNCE);
+                // 3秒後にアニメーションを停止
+                setTimeout(() => {
+                  try {
+                    expMarker.marker.setAnimation(null);
+                  } catch (e) {
+                    // エラーは無視
+                  }
+                }, 3000);
+              } catch (e) {
+                // エラーは無視
+              }
+            }
+          }
+        });
+      }
+    }, 150);
 
   }, [map, searchLocation]);
+
+  // 選択された体験を地図に表示（検索場所が設定されていない場合のみ）
+  useEffect(() => {
+    console.log('=== 選択された体験の地図表示チェック ===');
+    console.log('map:', !!map);
+    console.log('selectedExperience:', selectedExperience);
+    console.log('searchLocation:', searchLocation);
+    console.log('条件チェック結果:', !map || !selectedExperience || searchLocation);
+
+    if (!map || !selectedExperience || searchLocation) {
+      console.log('選択された体験の地図表示をスキップ');
+      return;
+    }
+
+    console.log('選択された体験の地図表示:', selectedExperience);
+
+    // 地図の中心を選択された体験の位置に移動
+    map.setCenter({ lat: selectedExperience.latitude, lng: selectedExperience.longitude });
+    map.setZoom(16); // 体験選択時は詳細表示のためズームレベルを上げる
+
+    // 選択された体験のマーカーを強調表示するために、対応するインフォウィンドウを自動で開く
+    setTimeout(() => {
+      const selectedMarker = experienceMarkersRef.current.find(m => {
+        const position = m.marker.getPosition();
+        return Math.abs(position.lat() - selectedExperience.latitude) < 0.00001 &&
+               Math.abs(position.lng() - selectedExperience.longitude) < 0.00001;
+      });
+
+      if (selectedMarker) {
+        // ラベルを非表示にする
+        experienceMarkersRef.current.forEach(m => {
+          if (m.label && mapFilters.showLabels) {
+            m.label.close();
+          }
+        });
+
+        // 選択された体験のインフォウィンドウを開く
+        const generateInfoWindowContent = (exp: any) => {
+          return `
+            <div style="min-width: 250px; max-width: 350px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+              <div style="margin-bottom: 12px;">
+                <h3 style="margin: 0; color: #1f2937; font-size: 18px; font-weight: 600;">${exp.category || '不明'}</h3>
+              </div>
+              <div style="margin-bottom: 10px; display: flex; align-items: center;">
+                <span style="color: #374151; font-weight: 500; margin-right: 8px;">評価:</span>
+                <span style="color: #fbbf24; font-size: 16px;">${exp.rating ? '★'.repeat(exp.rating) : ''}</span>
+                <span style="color: #d1d5db; font-size: 16px;">${exp.rating ? '☆'.repeat(5 - exp.rating) : '☆☆☆☆☆'}</span>
+                <span style="margin-left: 6px; color: #6b7280; font-size: 14px;">(${exp.rating || 0}/5)</span>
+              </div>
+              <div style="padding: 8px; background-color: #e0f2fe; border-radius: 6px; border: 2px solid #0288d1;">
+                <div style="color: #01579b; font-size: 12px; font-weight: 600; margin-bottom: 4px;">✅ 選択中の体験</div>
+                <div style="color: #0277bd; font-size: 11px;">この体験が一覧で選択されています</div>
+              </div>
+              <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #e5e7eb;">
+                <div style="color: #6b7280; font-size: 12px; text-align: center;">
+                  クリックして詳細を確認
+                </div>
+              </div>
+            </div>
+          `;
+        };
+
+        selectedMarker.infoWindow.setContent(generateInfoWindowContent(selectedExperience));
+        openInfoWindow(selectedMarker.infoWindow, selectedMarker.marker);
+      }
+    }, 300);
+
+  }, [map, selectedExperience, searchLocation, mapFilters.showLabels]);
 
   // カテゴリ別のマーカー色を取得
   const getCategoryIcon = (category: string) => {
@@ -423,77 +773,17 @@ export default function BasicMap({
 
       const infoWindow = new window.google.maps.InfoWindow({
         content: generateInfoWindowContent(experience),
-        maxWidth: 400,
-        pixelOffset: new window.google.maps.Size(0, -10) // 少し下にずらす
+        maxWidth: 380,
+        pixelOffset: new window.google.maps.Size(0, -15), // 少し上にずらして重なりを防ぐ
+        zIndex: 9999  // 最前面に表示
       });
 
       marker.addListener('click', () => {
         console.log(`マーカークリック: ${experience.category} (ID: ${experience.id})`, experience);
 
-        const now = Date.now();
-        const currentClick = {markerId: experience.id, time: now};
-
-        // ダブルクリック判定（500ms以内に同じマーカーをクリック）
-        if (lastClickRef.current &&
-            lastClickRef.current.markerId === experience.id &&
-            now - lastClickRef.current.time < 500) {
-
-          // ダブルクリック時の処理：リンクオプションを表示
-          if (experience.website || experience.google_url || experience.phone) {
-            const links = [];
-            if (experience.website) links.push(`🌐 ホームページ: ${experience.website}`);
-            if (experience.google_url) links.push(`🗺️ Google マップ: 座標表示`);
-            if (experience.phone) links.push(`📞 電話: ${experience.phone}`);
-
-            const choice = confirm(
-              `詳細情報を開きますか？\n\n${links.join('\n')}\n\n` +
-              'OKでホームページを開く（ホームページがある場合）\n' +
-              'キャンセルでGoogle マップを開く'
-            );
-
-            if (choice && experience.website) {
-              window.open(experience.website, '_blank', 'noopener,noreferrer');
-            } else if (experience.google_url) {
-              window.open(experience.google_url, '_blank', 'noopener,noreferrer');
-            }
-          }
-          lastClickRef.current = null;
-          return;
-        }
-
-        lastClickRef.current = currentClick;
-
-        // 通常のクリック処理
-        // 他のインフォウィンドウを閉じ、全てのラベルを非表示にする
-        markers.forEach(m => {
-          if (m.infoWindow) {
-            m.infoWindow.close();
-          }
-          if (m.label && mapFilters.showLabels) {
-            m.label.close();
-          }
-        });
-
         // 新しいコンテンツで更新（最新のデータを確実に表示）
         infoWindow.setContent(generateInfoWindowContent(experience));
-        infoWindow.open(map, marker);
-
-        // インフォウィンドウが閉じられた時のイベントリスナーを追加
-        const closeListener = () => {
-          // ラベルを再表示
-          if (mapFilters.showLabels) {
-            markers.forEach(m => {
-              if (m.label) {
-                m.label.open(map, m.marker);
-              }
-            });
-          }
-          // イベントリスナーを削除（メモリリーク防止）
-          window.google.maps.event.removeListener(closeListener);
-        };
-
-        // インフォウィンドウのcloseイベントにリスナーを追加
-        window.google.maps.event.addListener(infoWindow, 'closeclick', closeListener);
+        openInfoWindow(infoWindow, marker);
 
         // 体験選択コールバック
         if (onExperienceSelect) {
@@ -512,16 +802,13 @@ export default function BasicMap({
     // refに保存
     experienceMarkersRef.current = markers;
 
-    // 店舗情報がある体験のInfoWindowを自動で開く（検索した場所から近い順）
-    if (experienceWithPlaceInfo && searchLocation) {
+    // 店舗情報がある体験のInfoWindowを自動で開く（検索場所がない場合のみ）
+    if (experienceWithPlaceInfo && !searchLocation) {
       setTimeout(() => {
         console.log('店舗情報がある体験を自動表示:', experienceWithPlaceInfo.experience);
 
-        // 他のInfoWindowを閉じる
+        // 他のInfoWindowを閉じ、ラベルを非表示にする
         markers.forEach(m => {
-          if (m.infoWindow && m.infoWindow !== experienceWithPlaceInfo.infoWindow) {
-            m.infoWindow.close();
-          }
           if (m.label && mapFilters.showLabels) {
             m.label.close();
           }
@@ -529,16 +816,61 @@ export default function BasicMap({
 
         // 店舗情報がある体験のInfoWindowを開く
         experienceWithPlaceInfo.infoWindow.setContent(generateInfoWindowContent(experienceWithPlaceInfo.experience));
-        experienceWithPlaceInfo.infoWindow.open(map, experienceWithPlaceInfo.marker);
-
+        openInfoWindow(experienceWithPlaceInfo.infoWindow, experienceWithPlaceInfo.marker);
 
       }, 500); // 地図の読み込み完了を待つ
+    } else if (searchLocation) {
+      console.log('検索場所が設定されているため、体験の自動表示をスキップ');
     }
 
   }, [map, experiences, mapFilters, searchLocation]);
 
+  // InfoWindow最前面表示のためのスタイルを動的に挿入
+  useEffect(() => {
+    const styleId = 'infowindow-z-index-style';
+
+    // 既存のスタイルがあれば削除
+    const existingStyle = document.getElementById(styleId);
+    if (existingStyle) {
+      existingStyle.remove();
+    }
+
+    // 新しいスタイルを追加
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      .gm-ui-hover-effect,
+      .gm-style-iw,
+      .gm-style-iw-c,
+      .gm-style-iw-d,
+      div[style*="position: absolute"][style*="z-index"] {
+        z-index: 9999 !important;
+      }
+
+      /* 詳細情報を含むInfoWindowを特に強調 */
+      div[style*="position: absolute"]:has(.gm-ui-hover-effect) {
+        z-index: 10000 !important;
+      }
+
+      /* Google Maps InfoWindowの基本クラス */
+      .gm-style .gm-style-iw-chr {
+        z-index: 10001 !important;
+      }
+    `;
+    document.head.appendChild(style);
+
+    // クリーンアップ
+    return () => {
+      const styleToRemove = document.getElementById(styleId);
+      if (styleToRemove) {
+        styleToRemove.remove();
+      }
+    };
+  }, []);
+
   return (
     <div className="w-full h-full min-h-[400px]">
+
       <div className="mb-2 flex justify-between items-center text-sm text-gray-600">
         <span>状態: {status}</span>
         {experiences.length > 0 && (

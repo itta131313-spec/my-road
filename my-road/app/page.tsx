@@ -99,6 +99,9 @@ export default function Home() {
 
   useEffect(() => {
     fetchExperiences();
+    // ページ初期化時に選択状態をクリア
+    setSelectedExperience(null);
+    setSelectedRoute(null);
   }, []);
   return (
     <main className="min-h-screen flex flex-col">
@@ -125,14 +128,27 @@ export default function Home() {
             
             {/* 場所検索 */}
             <div className="mb-4">
-              <ModernPlacesSearch 
+              <ModernPlacesSearch
                 onPlaceSelect={(place) => {
+                  console.log('=== 新しい場所を選択 ===');
+                  console.log('選択された場所:', place);
+                  console.log('現在のselectedExperience:', selectedExperience);
+                  console.log('現在のsearchLocation:', searchLocation);
+
+                  console.log('searchLocationを更新中...');
                   setSearchLocation(place);
+
+                  console.log('selectedLocationを更新中...');
                   setSelectedLocation({
                     lat: place.lat,
                     lng: place.lng,
                     address: place.address
                   });
+
+                  // 新しい検索場所が選ばれた時は選択中の体験をクリア
+                  console.log('selectedExperienceをクリア中...');
+                  setSelectedExperience(null);
+                  console.log('すべての状態更新完了');
                 }}
               />
             </div>
@@ -145,6 +161,10 @@ export default function Home() {
                 onLocationSelect={setSelectedLocation}
                 showExperiencePopup={true}
                 mapFilters={mapFilters}
+                selectedExperience={selectedExperience}
+                onExperienceSelect={(experience) => {
+                  setSelectedExperience(experience);
+                }}
               />
               <MapControls
                 onFiltersChange={setMapFilters}

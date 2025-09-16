@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import Link from 'next/link';
 
 interface Experience {
   id: string;
@@ -353,30 +354,34 @@ export default function ExperienceList({
         <>
           <div className="space-y-2">
             {displayedExperiences.map((experience) => (
-              <Card 
+              <Card
                 key={experience.id}
-                className="cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => onExperienceSelect?.(experience)}
+                className="hover:shadow-md transition-shadow"
               >
                 <CardContent className="p-3">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <div className="font-medium text-sm">{experience.category}</div>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-600">
-                        <span>{experience.rating}★</span>
-                        <Badge variant="secondary" className="text-xs">
-                          {experience.age_group}・{experience.gender}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          {experience.time_of_day}
-                        </Badge>
-                      </div>
-                      {experience.address && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          {experience.address.slice(0, 30)}
-                          {experience.address.length > 30 ? '...' : ''}
+                      <Link
+                        href={`/experience/${experience.id}`}
+                        className="block hover:text-blue-600 transition-colors"
+                      >
+                        <div className="font-medium text-sm">{experience.category}</div>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-gray-600">
+                          <span>{experience.rating}★</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {experience.age_group}・{experience.gender}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {experience.time_of_day}
+                          </Badge>
                         </div>
-                      )}
+                        {experience.address && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {experience.address.slice(0, 30)}
+                            {experience.address.length > 30 ? '...' : ''}
+                          </div>
+                        )}
+                      </Link>
                     </div>
                     <div className="text-right text-xs text-gray-500">
                       <div>{formatDate(experience.created_at)}</div>
@@ -386,6 +391,20 @@ export default function ExperienceList({
                         </div>
                       )}
                     </div>
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => onExperienceSelect?.(experience)}
+                      className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                    >
+                      地図で表示
+                    </button>
+                    <Link
+                      href={`/experience/${experience.id}`}
+                      className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+                    >
+                      詳細を見る
+                    </Link>
                   </div>
                 </CardContent>
               </Card>
