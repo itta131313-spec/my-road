@@ -5,6 +5,10 @@ import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import PhotoUploadForm from '@/components/photo/photo-upload-form';
+import PhotoGallery from '@/components/photo/photo-gallery';
+import CommentForm from '@/components/comment/comment-form';
+import CommentList from '@/components/comment/comment-list';
 import Link from 'next/link';
 
 interface Experience {
@@ -32,6 +36,9 @@ export default function ExperienceDetailPage() {
   const [experience, setExperience] = useState<Experience | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [refreshPhotos, setRefreshPhotos] = useState(0);
+  const [refreshComments, setRefreshComments] = useState(0);
 
   const supabase = createClient();
   const experienceId = params.id as string;
@@ -67,7 +74,14 @@ export default function ExperienceDetailPage() {
     }
   };
 
+  // 現在のユーザー情報を取得
+  const fetchCurrentUser = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setCurrentUser(user);
+  };
+
   useEffect(() => {
+    fetchCurrentUser();
     if (experienceId) {
       fetchExperience();
     }
@@ -309,6 +323,72 @@ export default function ExperienceDetailPage() {
                   </a>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* 写真ギャラリー */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>写真</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PhotoGallery
+                key={refreshPhotos}
+                experienceId={experienceId}
+                isOwner={currentUser?.id === experience.user_id}
+                className=""
+                showUploadForm={false}
+              />
+            </CardContent>
+          </Card>
+
+          {/* 写真投稿フォーム（体験の投稿者または認証済みユーザーのみ表示） */}
+          {currentUser && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle>写真を追加</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <PhotoUploadForm
+                  experienceId={experienceId}
+                  onPhotoUploaded={() => {
+                    // 写真ギャラリーを再読み込みする
+                    setRefreshPhotos(prev => prev + 1);
+                  }}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* コメント投稿フォーム（認証済みユーザーのみ表示） */}
+          {currentUser && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle>コメントを投稿</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CommentForm
+                  experienceId={experienceId}
+                  onCommentPosted={() => {
+                    // コメント一覧を再読み込みする
+                    setRefreshComments(prev => prev + 1);
+                  }}
+                  showRating={true}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* コメント一覧 */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>コメント</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CommentList
+                key={refreshComments}
+                experienceId={experienceId}
+              />
             </CardContent>
           </Card>
 
